@@ -225,6 +225,7 @@ class MainWindow(QMainWindow):
         try:
             if self.bus is None:
                 raise Exception("Not connected.")
+            
             can_id_text = self.input_id.text().strip()
             if not can_id_text:
                 raise ValueError("CAN ID is empty.")
@@ -246,12 +247,27 @@ class MainWindow(QMainWindow):
             if self.bus is None:
                 raise Exception("Not connected.")
             
-            can_id = int(self.input_id2.text(), 16)
+            can_id_text2 = self.input_id2.text().strip()
+            if not can_id_text2:
+                raise ValueError("CAN ID is empty.")
+            
+            can_id2 = int(can_id_text2, 16)
+            is_extended = can_id2 > 0x7FF
+
             data = [int(f.text(), 16) for f in self.input_data2 if f.text()]
             if len(data) != 8:
                 raise ValueError("DLC must be 8.")
-            msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=False)
+            
+            msg = can.Message(arbitration_id=can_id2, data=data, is_extended_id=is_extended)
             self.bus.send(msg)
+#            
+#            can_id = int(self.input_id2.text(), 16)
+#            data = [int(f.text(), 16) for f in self.input_data2 if f.text()]
+#            if len(data) != 8:
+#                raise ValueError("DLC must be 8.")
+#            msg = can.Message(arbitration_id=can_id, data=data, is_extended_id=False)
+#            self.bus.send(msg)
+
         except Exception as e:
             QMessageBox.critical(self, "Send Error (Write2)", str(e))
 
@@ -305,8 +321,6 @@ class MainWindow(QMainWindow):
             indicator = 0xF1
         else:
             indicator = 0x0 # 직진
-
-
 
         speed_val = int(speed / 0.1)
         linear_v1 = speed_val & 0xFF
