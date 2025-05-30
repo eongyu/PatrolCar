@@ -93,7 +93,7 @@ class MainWindow(QMainWindow):
     """
     # 슬라이더 스케일링을 위한 상수 정의
     SPEED_SLIDER_FACTOR = 10.0 # 10 = 0.1km/h 단위 (슬라이더 값 10 -> 1.0 km/h)
-    ANGLE_SLIDER_FACTOR = 1.0  # 1 = 1도 단위 (슬라이더 값 1 -> 1.0 deg)
+    ANGLE_SLIDER_FACTOR = 10.0  # 10 = 0.1도 단위 (슬라이더 값 10 -> 1.0 deg)
 
     def __init__(self):
         super().__init__()
@@ -111,6 +111,9 @@ class MainWindow(QMainWindow):
 
         self.drive_timer = QTimer()
         self.drive_timer.timeout.connect(self._send_repeated_drive_command)
+        # drive_timer의 주기를 더 짧게 변경 (예: 50ms 또는 100ms)
+        self.drive_timer.setInterval(100) # 100ms마다 반복 전송
+
         self.current_speed = 0.0
         self.current_angular = 0.0
 
@@ -180,12 +183,14 @@ class MainWindow(QMainWindow):
         self.angle_input = QLineEdit("0.0") # 초기값 설정
         self.angle_input.setPlaceholderText("Enter Angle (Deg.)")
         self.angle_slider = QSlider(Qt.Orientation.Horizontal)
-        self.angle_slider.setRange(int(-300 * self.ANGLE_SLIDER_FACTOR), int(300 * self.ANGLE_SLIDER_FACTOR)) # -300 deg ~ 300 deg (1도 단위)
+        # --- MODIFICATION START ---
+        self.angle_slider.setRange(int(-30 * self.ANGLE_SLIDER_FACTOR), int(30 * self.ANGLE_SLIDER_FACTOR)) # -30 deg ~ 30 deg (0.1도 단위)
+        # --- MODIFICATION END ---
         self.angle_slider.setValue(0) # 초기값 0
         self.angle_slider.setSingleStep(1)
         self.angle_slider.setPageStep(10)
         self.angle_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.angle_slider.setTickInterval(50) # 50도 간격으로 눈금 표시
+        self.angle_slider.setTickInterval(50) # 5도 간격으로 눈금 표시
 
         angle_control_group.addWidget(self.angle_label)
         angle_control_group.addWidget(self.angle_input)
@@ -194,9 +199,9 @@ class MainWindow(QMainWindow):
 
         # 전송 및 정지 버튼
         action_buttons_layout = QHBoxLayout()
-        self.btn_send_drive = QPushButton("Send Drive Command")
+        # self.btn_send_drive = QPushButton("Send Drive Command") # 삭제: 슬라이더에 직접 연결
         self.btn_stop = QPushButton("Stop Vehicle")
-        action_buttons_layout.addWidget(self.btn_send_drive)
+        # action_buttons_layout.addWidget(self.btn_send_drive) # 삭제: 슬라이더에 직접 연결
         action_buttons_layout.addWidget(self.btn_stop)
         control_layout.addLayout(action_buttons_layout)
 
@@ -237,7 +242,7 @@ class MainWindow(QMainWindow):
         self.btn_connect.clicked.connect(self.connect_can_interface)
         self.btn_disconnect.clicked.connect(self.disconnect_can_interface)
         self.btn_clear.clicked.connect(self.clear_tables)
-        self.btn_send_drive.clicked.connect(self._send_drive_command)
+        # self.btn_send_drive.clicked.connect(self._send_drive_command) # 삭제
         self.btn_stop.clicked.connect(self._stop_vehicle)
         self.btn_write.clicked.connect(self._send_can_frame)
         self.btn_write2.clicked.connect(self._send_can_frame2)
@@ -249,6 +254,10 @@ class MainWindow(QMainWindow):
         # QLineEdit -> 슬라이더 연동 (무한 루프 방지 로직 포함)
         self.speed_input.editingFinished.connect(self._update_speed_slider_from_input)
         self.angle_input.editingFinished.connect(self._update_angle_slider_from_input)
+
+        # 슬라이더 값 변경 시 즉시 주행 명령 전송
+        self.speed_slider.valueChanged.connect(self._on_slider_value_changed)
+        self.angle_slider.valueChanged.connect(self._on_slider_value_changed)
 
     def _update_speed_input_from_slider(self, value):
         """속도 슬라이더 값 변경 시 텍스트 입력 필드를 업데이트합니다."""
@@ -272,6 +281,7 @@ class MainWindow(QMainWindow):
                 self.speed_slider.blockSignals(True) # 시그널 일시 중지
                 self.speed_slider.setValue(slider_value)
                 self.speed_slider.blockSignals(False) # 시그널 재개
+                self._on_slider_value_changed() # 입력 후 엔터 쳤을 때도 바로 전송
             else:
                 QMessageBox.warning(self, "입력 오류", f"속도 값이 허용 범위(-{self.speed_slider.maximum()/self.SPEED_SLIDER_FACTOR:.1f} ~ {self.speed_slider.maximum()/self.SPEED_SLIDER_FACTOR:.1f} km/h)를 벗어났습니다.")
                 self.speed_input.setText(f"{self.speed_slider.value() / self.SPEED_SLIDER_FACTOR:.1f}") # 원래 슬라이더 값으로 되돌림
@@ -285,17 +295,51 @@ class MainWindow(QMainWindow):
             angle = float(self.angle_input.text())
             slider_value = int(angle * self.ANGLE_SLIDER_FACTOR)
             # 슬라이더 범위 내인지 확인 후 설정
+            # --- MODIFICATION START ---
             if self.angle_slider.minimum() <= slider_value <= self.angle_slider.maximum():
                 self.angle_slider.blockSignals(True) # 시그널 일시 중지
                 self.angle_slider.setValue(slider_value)
                 self.angle_slider.blockSignals(False) # 시그널 재개
+                self._on_slider_value_changed() # 입력 후 엔터 쳤을 때도 바로 전송
             else:
                 QMessageBox.warning(self, "입력 오류", f"각도 값이 허용 범위(-{self.angle_slider.maximum()/self.ANGLE_SLIDER_FACTOR:.1f} ~ {self.angle_slider.maximum()/self.ANGLE_SLIDER_FACTOR:.1f} deg)를 벗어났습니다.")
                 self.angle_input.setText(f"{self.angle_slider.value() / self.ANGLE_SLIDER_FACTOR:.1f}") # 원래 슬라이더 값으로 되돌림
+            # --- MODIFICATION END ---
         except ValueError:
             QMessageBox.critical(self, "입력 오류", "유효한 숫자를 입력해주세요.")
             self.angle_input.setText(f"{self.angle_slider.value() / self.ANGLE_SLIDER_FACTOR:.1f}") # 유효하지 않으면 원래 슬라이더 값으로 되돌림
 
+    def _on_slider_value_changed(self):
+        """
+        슬라이더 값이 변경될 때 호출됩니다.
+        변경된 속도와 각도 값을 기반으로 주행 명령을 보냅니다.
+        """
+        try:
+            # CAN 버스가 연결되어 있지 않으면 동작하지 않음
+            if self.bus is None:
+                # QMessageBox.warning(self, "경고", "CAN 버스가 연결되어 있지 않습니다.") # 너무 자주 뜰 수 있으므로 주석 처리
+                self.drive_timer.stop() # 버스 연결 안 되면 타이머 중지
+                return
+            
+            speed = float(self.speed_input.text())
+            angular = float(self.angle_input.text())
+            
+            self.current_speed = speed
+            self.current_angular = angular
+
+            # 슬라이더 조작 시 즉시 CAN 메시지 전송
+            self._send_drive_frame(speed, angular)
+
+            # 반복 전송 타이머 시작 (이미 실행 중이면 유지)
+            if not self.drive_timer.isActive():
+                self.drive_timer.start() # self.drive_timer.setInterval(100)으로 설정된 주기로 시작
+            
+        except ValueError:
+            # 유효하지 않은 숫자 입력 시 발생하는 오류는 이미 _update_X_slider_from_input에서 처리됨
+            pass
+        except Exception as e:
+            QMessageBox.critical(self, "주행 명령 오류", f"슬라이더 조작 중 오류 발생:\n{e}")
+            self.drive_timer.stop() # 오류 발생 시 타이머 중지
 
     def _load_config(self):
         """설정 파일에서 CAN 인터페이스 이름을 로드합니다."""
@@ -314,6 +358,8 @@ class MainWindow(QMainWindow):
             self.bus = can.Bus(channel=self.interface_name, interface='socketcan')
             self.read_timer.start(50) # 50ms마다 메시지 읽기 시도
             QMessageBox.information(self, "정보", f"CAN 버스 '{self.interface_name}' 연결 성공.")
+            # 연결 성공 시 현재 슬라이더 값으로 즉시 전송 시작
+            self._on_slider_value_changed() 
         except Exception as e:
             QMessageBox.critical(self, "오류", f"CAN 연결 실패:\n{e}")
 
@@ -396,57 +442,34 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, f"전송 오류 ({error_title})", str(e))
 
-    def _send_drive_command(self):
-        """
-        입력된 속도와 각도로 차량 제어 명령을 반복적으로 전송합니다.
-        텍스트 입력 필드의 값을 우선적으로 사용합니다.
-        """
-        try:
-            if self.bus is None:
-                raise Exception("CAN 버스가 연결되어 있지 않습니다.")
-            
-            speed_text = self.speed_input.text().strip()
-            angular_text = self.angle_input.text().strip()
-
-            if not speed_text:
-                raise ValueError("속도(Speed) 값을 입력해주세요.")
-            if not angular_text:
-                raise ValueError("각도(Angular) 값을 입력해주세요.")
-
-            try:
-                speed = float(speed_text)
-                angular = float(angular_text)
-            except ValueError:
-                raise ValueError("속도와 각도는 유효한 숫자여야 합니다.")
-
-            self.current_speed = speed
-            self.current_angular = angular
-            
-            self._send_drive_frame(speed, angular) # 첫 명령 전송
-            self.drive_timer.start(500) # 500ms마다 반복 전송 시작 (차량 제어 스펙에 따라 조절)
-            QMessageBox.information(self, "정보", f"주행 명령 전송 시작 (속도: {speed} km/h, 각도: {angular} deg)")
-        except Exception as e:
-            QMessageBox.critical(self, "주행 명령 오류", str(e))
-
     def _send_drive_frame(self, speed, angular):
         """
         실제 CAN 드라이브 프레임을 구성하여 전송합니다.
         """
+        if self.bus is None:
+            return # CAN 버스가 연결되어 있지 않으면 전송하지 않음
+
+        # 각도 범위 제한 (-30 ~ 30)
+        angular = max(-30.0, min(30.0, angular))
+
         # 기어 설정 (0:P, 1:D, 2:N, 3:R)
         gear = 0x2 # 기본 N (Neutral)
-        if speed > 0: # 전진
+        if speed > 0.1: # 전진 (정지 임계값 추가)
             gear = 0x1 # D Gear
-        elif speed < 0: # 후진
+        elif speed < -0.1: # 후진 (정지 임계값 추가)
             gear = 0x3 # R Gear
             speed = abs(speed) # 속도 값은 양수로 변환
+        else: # 속도가 0에 가까우면 중립
+            gear = 0x2 # N Gear
 
         # 방향 지시등 설정 (0: 없음, 0xF1: 좌, 0xF2: 우)
         indicator = 0x00 # 기본 (없음)
-        # 이 임계값은 실제 차량의 조향 민감도에 따라 조정 필요
-        if angular < -5: # 우회전 (임의의 임계값)
+        # --- MODIFICATION START ---
+        if angular < -5.0: # 우회전 (임의의 임계값, 5도 기준)
             indicator = 0xF2
-        elif angular > 5: # 좌회전 (임의의 임계값)
+        elif angular > 5.0: # 좌회전 (임의의 임계값, 5도 기준)
             indicator = 0xF1
+        # --- MODIFICATION END ---
 
         # VCU_Speed_Req (CAN ID 0x303)에 사용되는 속도 값 변환
         # (VCU_Speed_Req = (value * 0.1) - 80 역산 -> value = (VCU_Speed_Req + 80) / 0.1)
@@ -458,7 +481,9 @@ class MainWindow(QMainWindow):
 
         # 0x502 메시지의 각도 값 변환 (현재 로직: (angular + 30) / 0.1)
         # 이 변환은 차량 제어 스펙에 따라 다를 수 있으므로 정확한 확인이 필수입니다.
-        angular_val_for_502 = int((angular + 30) / 0.1) # 특정 범위 매핑 (예: -300도 ~ 300도 -> 0 ~ 6000)
+        # angular 값이 -30에서 30일 때, (angular + 30)은 0에서 60
+        # 이를 0.1 단위로 변환하면 0에서 600이 됩니다. (0.1 deg/LSB 기준)
+        angular_val_for_502 = int((angular + 30) / 0.1) # 특정 범위 매핑 (예: -30도 ~ 30도 -> 0 ~ 600)
         angular_v1 = angular_val_for_502 & 0xFF
         angular_v2 = (angular_val_for_502 >> 8) & 0xFF
 
@@ -477,7 +502,8 @@ class MainWindow(QMainWindow):
         
         for m in msgs:
             self.bus.send(m)
-            time.sleep(0.01) # 짧은 딜레이로 메시지 전송 간 간격 확보 (UI 블로킹 유의)
+            # time.sleep(0.01) # 이 지연이 UI 반응성을 저하시킬 수 있으므로 제거하거나 매우 짧게 조정
+                               # 대신 QTimer 주기를 짧게 가져가는 것이 더 효율적
 
     def _send_repeated_drive_command(self):
         """QTimer에 의해 반복적으로 호출되어 현재 속도와 각도로 주행 명령을 전송합니다."""
